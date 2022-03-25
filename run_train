@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+
+perform_all() {
+    ./cli data $1
+    ./cli train $1
+    ./cli test $1
+}
+
+perform_test() {
+    ./cli data $1
+    ./cli test $1
+}
+
+perform_test 12
+perform_test 13
+perform_test 14
+perform_test 15
+perform_test 16

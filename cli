@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+
+import click
+import shutil as sh
+from pathlib import Path
+from collections import OrderedDict
+import json
+
+import numpy as np
+import pandas as pd
+import pandas_ta
+import tensortrade.env.default as default
+
+from utils import dashboard
+
+from tensortrade.feed.core import Stream, DataFeed
+from tensortrade.oms.exchanges import Exchange, ExchangeOptions
+from tensortrade.oms.services.execution.simulated import execute_order
+from tensortrade.oms.instruments import Instrument
+from tensortrade.oms.wallets import Wallet, Portfolio
+
+from models.dqn.dqn import DQNAgent, DQNTransition
+
+from plotter.plotter import Plotter
+from reward_schemes import RiskAdjustedReturns
+from action_schemes import ManagedRiskOrders
+from utils.feature_generator import FeatureGenerator
+
+from trainer import Trainer
+
+
+"""mapping of columns to their respective aggregation method
+used when data gets resampled into a higher timeframe
+"""
+OHLCV_AGG = OrderedDict(
+    (
+        ("Open", "first"),
+        ("High", "max"),
+        ("Low", "min"),
+        ("Close", "last"),
+        ("Volume", "sum"),
+    )
+)
+
+
+def make_exp_paths(expno):
+    import sys
+
+    exp_root = Path(f"experiments/exp_{str(expno).zfill(4)}")
+
+    if not exp_root.exists():
+        sys.exit("Experiment {expno} does not exist")
+
+    exp_weights = exp_root / "weights"
+    if not exp_weights.exists():
+        exp_weights.mkdir()
+
+    exp_charts = exp_root / "charts"
+    if not exp_charts.exists():
+        exp_charts.mkdir()
+        (exp_charts / "train").mkdir()
+        (exp_charts / "test").mkdir()
+
+    return exp_root, exp_weights, exp_charts
+
+
+def make_chart_path(exp_charts, type_, episode, step):
+    path = exp_charts / type_
+    path = path / f"chart_{str(episode).zfill(2)}_{str(step).zfill(8)}.html"
+
+    return path
+
+
+def make_config_path(exp_root):
+    path = exp_root / "config.jsonc"
+
+    return path
+
+
+def make_result_path(exp_root):
+    path = exp_root / "result.json"
+    if not path.exists():
+        path.touch()
+
+    return path
+
+
+def write_results(result_path, type_, total_reward, mean_reward, performance):
+    type_res = {
+        "total_reward": total_reward,
+        "mean_reward": mean_reward,
+        "final_equity": performance["net_worth"].iloc[-1],
+    }
+
+    if type_ == "train":
+        with open(result_path, "w") as f:
+            res = {"train": type_res}
+            json.dump(res, f, indent=4)
+    else:
+        with open(result_path, "r") as f:
+            res = json.load(f)
+
+        if "test" not in res:
+            res["test"] = []
+
+        with open(result_path, "w") as f:
+            res["test"].append(type_res)
+            json.dump(res, f, indent=4)
+
+
+def create_env(config, ds_path):
+    """Creates the env for the RL model
+    - loads the data
+    - inits a fake exchange
+    - inits an initial wallet
+    - creates data for the renderer (plain unmodified data)
+    - loads the features
+    """
+    dataset = (
+        pd.read_csv(filepath_or_buffer=ds_path, parse_dates=["Datetime"])
+        .fillna(method="backfill")
+        .fillna(method="ffill")
+    )
+
+    ################################################################################
+    # EXCHANGE and PORTFOLIO
+    # creates a training exchange, which is used in the env and initilazes the
+    # wallets.
+    ################################################################################
+    exchange_commission = config.env.exchange_commission
+    price = Stream.source(list(dataset["Close"]), dtype="float").rename("USD-BTC")
+    exchange_options = ExchangeOptions(commission=exchange_commission)
+    exchange = Exchange("TTSE", service=execute_order, options=exchange_options)(price)
+
+    # Instruments, Wallets and Portfolio
+    USD = Instrument("USD", 2, "US Dollar")
+    BTC = Instrument("BTC", 8, "Bitcoin")
+
+    init_dollar, init_btc = config.env.initial_cash
+    cash = Wallet(exchange, init_dollar * USD)
+    portfolio = Portfolio(USD, [cash, Wallet(exchange, init_btc * BTC)])
+
+    ################################################################################
+    # RENDERING
+    # creates a renderer feed, this is the data which will be shown in the
+    # generated graph.
+    ################################################################################
+    renderer_feed = DataFeed(
+        [
+            Stream.source(list(dataset["Datetime"])).rename("date"),
+            Stream.source(list(dataset["Open"]), dtype="float").rename("open"),
+            Stream.source(list(dataset["High"]), dtype="float").rename("high"),
+            Stream.source(list(dataset["Low"]), dtype="float").rename("low"),
+            Stream.source(list(dataset["Close"]), dtype="float").rename("close"),
+            Stream.source(list(dataset["Volume"]), dtype="float").rename("volume"),
+        ]
+    )
+    chart_renderer = Plotter(display=False)
+
+    ################################################################################
+    # FEATURES
+    # creates a feature stream to pipe the training data into the model
+    ################################################################################
+    features = []
+    print(dataset)
+    for c in dataset.columns[len("OHLCV") + 1 :]:
+        s = Stream.source(list(dataset[c]), dtype="float").rename(dataset[c].name)
+        features += [s]
+    feed = DataFeed(features)
+    feed.compile()
+
+    ################################################################################
+    # REWARD SCHEME
+    # creates the reward scheme
+    ################################################################################
+    if config.env.reward_scheme.active == "risk_adjusted":
+        config_ = config.env.reward_scheme.risk_adjusted
+        reward_scheme = RiskAdjustedReturns(**config_)
+    else:
+        raise ValueError(f"Unknown reward_scheme: {config.env.reward_scheme.active}")
+
+    ################################################################################
+    # ACTION SCHEME
+    # creates the action scheme
+    ################################################################################
+    if config.env.action_scheme.active == "managed_risk":
+        config_ = config.env.action_scheme.managed_risk
+        action_scheme = ManagedRiskOrders(**config_)
+    else:
+        raise ValueError(f"Unknown reward_scheme: {config.env.reward_scheme.active}")
+
+    ################################################################################
+    # ENV
+    # initializes the env with the given parameters
+    ################################################################################
+    env = default.create(
+        feed=feed,
+        portfolio=portfolio,
+        action_scheme=action_scheme,
+        reward_scheme=reward_scheme,
+        renderer_feed=renderer_feed,
+        renderer=chart_renderer,
+        window_size=config.env.window_size,
+        max_allowed_loss=config.env.max_allowed_loss,
+        enable_logger=True,
+    )
+
+    return env, dataset
+
+
+def load_config(path):
+    from jsoncomment import JsonComment as jsonc
+    from easydict import EasyDict as edict
+
+    with open(path, "r") as f:
+        j = jsonc().load(f)
+
+    return edict(j)
+
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("expno", type=int, required=True)
+def data(expno):
+    """creates the traning, eval and test data"""
+    exp_root, *_ = make_exp_paths(expno)
+    config_path = make_config_path(exp_root)
+    config = load_config(config_path)
+
+    pd.options.mode.chained_assignment = None
+
+    # load all traning and test data
+    data = pd.read_csv(config.data.path)
+    data = data[::-1]
+    data.set_index(pd.DatetimeIndex(data["Datetime"]), inplace=True)
+    data.drop(columns=["unix", "symbol", "Volume BTC", "tradecount"], inplace=True)
+
+    # resample the data
+    data = data.resample(config.data.timeframe, label="right").agg(OHLCV_AGG)
+    # 'Datetime' will get removed through aggregation, but we need it for the RL framework
+    # so reinsert it again
+    data.insert(0, "Datetime", data.index)
+
+    # split data
+    end_idx = int(len(data) * config.data.training_split)
+    train_df, test_df = data.iloc[:end_idx], data.iloc[end_idx:]
+
+    feature_generator = FeatureGenerator()
+    for name, df in (("train", train_df), ("test", test_df)):
+        print("-------------------------------------------------------------")
+        print("-------------------------------------------------------------")
+        print(f"----- {name} --------------------------------------------------")
+        print("-------------------------------------------------------------")
+        print("-------------------------------------------------------------")
+        for feature_name_args in config.data.features:
+            feature_generator.generate(feature_name_args, df)
+
+        save_path = f"data/{name}.csv"
+        df.to_csv(save_path, index=False)
+
+        print(df)
+
+
+@cli.command()
+@click.argument("expno", type=int, required=True)
+@click.option("--test", "is_test", is_flag=True, default=False)
+def train(expno, is_test):
+    exp_root, exp_weights, exp_charts = make_exp_paths(expno)
+    config_path = make_config_path(exp_root)
+    config = load_config(config_path)
+
+    env, train_df = create_env(config, ds_path="data/train.csv")
+    agent = DQNAgent(env, policy_network_type=config.model.policy_network_type)
+
+    def on_render(episode, step, env):
+        path = make_chart_path(exp_charts, "train", episode, env.renderer.min_step)
+        env.renderer.fig.write_html(file=str(path), include_plotlyjs="cdn")
+        sh.copy(path, f"{path.parent}/chart.html")
+
+        # maximum allowed chart length
+        reset_at = 10_000
+        if step and step % reset_at == 0:
+            env.renderer.reset()
+            env.renderer.min_step += reset_at
+
+    trainer = Trainer(
+        env,
+        weights_path=exp_weights,
+        on_render=on_render,
+        TransitionType=DQNTransition,
+        **config.trainer,
+    )
+    if not is_test:
+        total_reward, mean_reward = trainer.train(agent, n_steps=len(train_df))
+    else:
+        total_reward, mean_reward = trainer.train(agent, n_steps=500)
+
+    performance = pd.DataFrame.from_dict(
+        env.action_scheme.portfolio.performance, orient="index"
+    )
+
+    result_path = make_result_path(exp_root)
+    write_results(result_path, "train", total_reward, mean_reward, performance)
+
+
+@cli.command()
+@click.argument("expno", type=int, required=True)
+@click.option("--test", "is_test", is_flag=True, default=False)
+def test(expno, is_test):
+    exp_root, exp_weights, exp_charts = make_exp_paths(expno)
+    config_path = make_config_path(exp_root)
+    config = load_config(config_path)
+
+    for expno in range(27):
+        env, test_df = create_env(config, ds_path="data/test.csv")
+        agent = DQNAgent(env)
+        agent.restore(exp_weights / f"model_{str(expno).zfill(2)}.hdf5")
+
+        def on_render(episode, step, env):
+            path = make_chart_path(exp_charts, "test", expno, env.renderer.min_step)
+            env.renderer.fig.write_html(file=str(path), include_plotlyjs="cdn")
+            sh.copy(path, f"{path.parent}/chart.html")
+
+            reset_at = 10_000
+            # reset_at = 500
+            if step and step % reset_at == 0:
+                env.renderer.reset()
+                env.renderer.min_step += reset_at
+
+        trainer = Trainer(
+            env,
+            weights_path=exp_weights,
+            on_render=on_render,
+            TransitionType=DQNTransition,
+            **config.trainer,
+        )
+        if not is_test:
+            total_reward, mean_reward = trainer.test(agent, n_steps=len(test_df))
+        else:
+            total_reward, mean_reward = trainer.test(agent, n_steps=500)
+
+        performance = pd.DataFrame.from_dict(
+            env.action_scheme.portfolio.performance, orient="index"
+        )
+        result_path = make_result_path(exp_root)
+        write_results(result_path, "test", total_reward, mean_reward, performance)
+
+
+@cli.command()
+@click.argument("expno", type=int, required=True)
+def clean(expno):
+    _, exp_weights, exp_charts = make_exp_paths(expno)
+
+    weights = exp_weights.glob("**/*")
+    for weight in weights:
+        weight.unlink()
+
+    for t in ("train", "test"):
+        charts = exp_charts.glob(f"**/{t}/*")
+        for chart in charts:
+            chart.unlink()
+
+
+if __name__ == "__main__":
+    cli()

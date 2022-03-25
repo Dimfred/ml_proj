@@ -1,0 +1,24 @@
+{
+    "train": {
+        "total_reward": -113240.71207949787,
+        "mean_reward": -0.5666880787047819,
+        "final_equity": 1887.9461879
+    },
+    "test": [
+        {
+            "total_reward": -132895.7798338625,
+            "mean_reward": -17.956462617735777,
+            "final_equity": 6275.53951857
+        },
+        {
+            "total_reward": -202.93909457444772,
+            "mean_reward": -0.027420496497020365,
+            "final_equity": 6323.74055885
+        },
+        {
+            "total_reward": -174.812477083337,
+            "mean_reward": -0.02362011580642305,
+            "final_equity": 6340.1026853
+        }
+    ]
+}

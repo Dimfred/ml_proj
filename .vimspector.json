@@ -1,0 +1,45 @@
+{ 
+  "configurations": {
+    "run": {
+      "adapter": "debugpy",
+      "configuration": {
+        // "name": "debug python",
+        "type": "python",
+        "request": "launch",
+        "stopOnEntry": false,
+        "console": "integratedTerminal",
+
+        "python": "/usr/bin/python3.9",
+
+        "cwd": "${fileDirname}",
+        "environment": [],
+
+        "program": "${workspaceFolder}/tutorial.py",
+        "args": [
+          "train"
+        ]
+      },
+      "breakpoints": {
+        "exception": {
+          "raised": "N",
+          "uncaught": ""
+        }
+      }
+    }
+    // ,
+    //"attach": {
+    //  "adapter": "multi-session",
+    //  "configuration": {
+    //    "request": "attach"
+    //  },
+    //  "breakpoints": {
+    //    "exception": {
+    //      "raised": "N",
+    //      "uncaught": ""
+    //    }
+    //  }
+    //}
+  }
+}
+// vim:ft=jsonc
+

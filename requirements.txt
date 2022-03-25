@@ -1,0 +1,11 @@
+tensortrade
+tensorflow
+opencv-python
+tabulate
+tqdm
+ray[default,rllib,tune]==1.8.0
+dm_tree
+torch
+lz4
+ipywidgets
+dash

@@ -1,0 +1,69 @@
+{
+    "train": {
+        "total_reward": -144884.26683407277,
+        "mean_reward": -0.7250412444343552,
+        "final_equity": 10235.6634361
+    },
+    "test": [
+        {
+            "total_reward": -195.54597786155648,
+            "mean_reward": -0.02642156166214788,
+            "final_equity": 9928.95849967
+        },
+        {
+            "total_reward": -67.78622859659328,
+            "mean_reward": -0.00915906345042471,
+            "final_equity": 9927.42785969
+        },
+        {
+            "total_reward": -81.79238491826328,
+            "mean_reward": -0.01105153153874656,
+            "final_equity": 9953.23245496
+        },
+        {
+            "total_reward": -354.434240119562,
+            "mean_reward": -0.04789004730706148,
+            "final_equity": 7916.1630490154
+        },
+        {
+            "total_reward": 3793.9023316687135,
+            "mean_reward": 0.5126202312753295,
+            "final_equity": 9844.7248956502
+        },
+        {
+            "total_reward": -354.434240119562,
+            "mean_reward": -0.04789004730706148,
+            "final_equity": 7916.1630490154
+        },
+        {
+            "total_reward": 3793.9023316687135,
+            "mean_reward": 0.5126202312753295,
+            "final_equity": 9844.7248956502
+        },
+        {
+            "total_reward": 2431.7256870252268,
+            "mean_reward": 0.328567178357685,
+            "final_equity": 9404.9516524611
+        },
+        {
+            "total_reward": 7402.0,
+            "mean_reward": 1.000135116876098,
+            "final_equity": 10000.0
+        },
+        {
+            "total_reward": 7402.0,
+            "mean_reward": 1.000135116876098,
+            "final_equity": 10000.0
+        },
+        {
+            "total_reward": 7185.504547783209,
+            "mean_reward": 0.9708829276831792,
+            "final_equity": 9991.86
+        },
+        {
+            "total_reward": 7402.0,
+            "mean_reward": 1.000135116876098,
+            "final_equity": 10000.0
+        }
+    ]
+}

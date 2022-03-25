@@ -1,0 +1,37 @@
+{
+  "include": [ 
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__"
+  ],
+  "extraPaths": [
+    "/home/dimfred/.local/lib/python3.9/site-packages/**"
+  ],
+  "ignore": [
+
+  ],
+
+  "stubPath": "",
+  // "venv": "env367",
+
+  "pythonVersion": "3.10",
+  "pythonPlatform": "Linux",
+
+  "executionEnvironments": [
+    {
+      "root": "./",
+      "pythonVersion": "3.10",
+      "pythonPlatform": "Linux",
+      "extraPaths": [
+
+      ]
+    }
+  ],
+  
+  "typeCheckingMode": "off",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}
+
+// vim:ft=jsonc

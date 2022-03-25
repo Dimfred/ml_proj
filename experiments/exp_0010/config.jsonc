@@ -1,0 +1,72 @@
+{
+    "description": "Raw Data: OCV",
+    "model": {
+        "model": "DQNAgent",
+        "policy_network_type": "MLP",
+        "args": [],
+        "kwargs": {}
+    },
+    "trainer": {
+        "n_episodes": 3,
+        "batch_size": 128,
+        "discount_factor": 0.9999,
+        "learning_rate": 0.005,
+        "update_target_every": 100,
+        "memory_capacity": 2048,
+        // threshold decay for random action selection
+        "eps_start": 0.9,
+        "eps_end": 0.05,
+        "eps_decay_steps": 200,
+        // misc
+        "render_interval": 1000
+    },
+    "env": {
+        // $ / Other
+        "initial_cash": [1000, 0],
+        "exchange_commission": 0.0035,
+        // lookback window for observation space
+        "window_size": 60,
+        // training stops when money is lost equal to specified percentage
+        "max_allowed_loss": 0.01,
+        "reward_scheme": {
+            "active": "risk_adjusted",
+            "risk_adjusted": {
+                "window_size": 10,
+                // sharpe / sortino
+                "return_algorithm": "sharpe",
+                "risk_free_rate": 0,
+                "target_returns": 0
+            }
+        },
+        "action_scheme": {
+            "active": "managed_risk",
+            "managed_risk": {
+                // possible stoplosses in %
+                "stop": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06],
+                // possible takeprofits in %
+                "take": [0.01, 0.02, 0.03, 0.04, 0.05, 0.06],
+                // possible trade sizes to select for a trade based on current equity
+                "trade_sizes": [0.01, 0.02, 0.03, 0.04, 0.05],
+                // durations how long a trade should take place
+                "durations": null,
+                // type: market / limit
+                "trade_type": "market",
+                // minimum value when placing an order, calced over net_worth
+                "min_order_pct": 0.01
+            }
+        }
+    },
+    "data": {
+        "path": "data/binance/BTCUSDT_binance_futures_data_minute.csv",
+        // resample data to this timeframe
+        "timeframe": "5Min",
+        "training_split": 0.9,
+        "features": [
+            "O",
+            "C",
+            "V",
+        ]
+    }
+}
+
+// vim:ft=jsonc
